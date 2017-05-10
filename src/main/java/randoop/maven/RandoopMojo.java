@@ -18,12 +18,10 @@ import java.net.URLClassLoader;
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-import randoop.compile.SequenceClassLoader;
-import randoop.main.GenTests;
-import randoop.main.RandoopTextuiException;
-
-@Mojo(name="randoop", defaultPhase = LifecyclePhase.GENERATE_TEST_SOURCES, threadSafe = false,
+@Mojo(name="randoop", defaultPhase = LifecyclePhase.GENERATE_TEST_SOURCES, threadSafe = true,
     requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
 public class RandoopMojo  extends AbstractMojo {
 
@@ -37,48 +35,57 @@ public class RandoopMojo  extends AbstractMojo {
       defaultValue = "${project.build.directory}/generated-test-sources/java")
   private String targetDirectory;
 
+  @Parameter(required = true, defaultValue = "30")
+  private int timeout;
+
   @Component
   private MavenProject project;
-
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
     final List<URL> urls = new LinkedList<>();
     urls.add(loadProjectClasses());
     loadProjectDependencies(urls);
+    urls.add(getClass().getProtectionDomain().getCodeSource().getLocation());
 
-    final URLClassLoader classLoader = new URLClassLoader(convert(urls));
-
-    List<Class<?>> allClassesOfPackage = ClassFinder.find(packageName, classLoader);
-
-    //Build up Randoop args
+    String classPath = urls.stream().map(u -> u.toString()).collect(Collectors.joining(File
+        .pathSeparator));
     final List<String> args = new LinkedList<>();
+    args.add("java");
+    args.add("-ea");
+    args.add("-classpath");
+    args.add(classPath);
+    args.add("randoop.main.Main");
+    args.add("gentests");
+    args.add("--timelimit="+timeout);
     args.add("--debug-checks=true");
     args.add("--junit-package-name=" + packageName);
     args.add("--junit-output-dir=" + targetDirectory);
+
+    final URLClassLoader classLoader = new URLClassLoader(convert(urls));
+    List<Class<?>> allClassesOfPackage = ClassFinder.find(packageName, classLoader);
     for (Class<?> currentClass : allClassesOfPackage) {
       getLog().info("Add class " + currentClass.getName());
       args.add("--testclass=" + currentClass.getName());
     }
 
-    ClassLoader l = new SequenceClassLoader(classLoader);
 
-    final GenTests randoop;
+    getLog().info("Call: " + args.stream().collect(Collectors.joining(" ")));
+
+    ProcessBuilder processBuilder = new ProcessBuilder(args);
+    processBuilder.redirectErrorStream(true);
+    processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE);
+    processBuilder.directory(project.getBasedir());
     try {
-      //Randoop ignores my ClassLoader and uses SystemClassloader so that no classes will be found
-      randoop = (GenTests) l.loadClass(GenTests.class.getName()).newInstance();
-    } catch (IllegalAccessException|InstantiationException|ClassNotFoundException e) {
-      throw new MojoExecutionException("Error occurred while loading Randoop!",e);
-
+      Process p = processBuilder.start();
+      p.waitFor(timeout+3, TimeUnit.SECONDS);
+      if(p.exitValue() != 0){
+        throw  new MojoFailureException(this,"Randoop encountered an error!","Failed to generate " +
+            "test, exit value is " + p.exitValue());
+      }
+    } catch (Exception e) {
+      throw  new MojoExecutionException(e.getMessage(),e);
     }
-
-    //Generate Tests
-    try {
-      randoop.handle(convert(args));
-    } catch (RandoopTextuiException e) {
-      throw new MojoExecutionException("Error occurred while generating tests with Randoop!",e);
-    }
-
   }
 
   private void loadProjectDependencies(final List<URL> urls) throws MojoExecutionException {
@@ -99,10 +106,6 @@ public class RandoopMojo  extends AbstractMojo {
       throw new MojoExecutionException("Could not create source path!",e);
     }
     return source;
-  }
-
-  private static String[] convert(final List<String> args) {
-    return args.toArray(new String[args.size()]);
   }
 
   private static URL[] convert(final Collection<URL> urls) {
