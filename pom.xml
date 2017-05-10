@@ -10,7 +10,6 @@
     <packaging>maven-plugin</packaging>
 
     <name>Randoop Maven Plugin</name>
-    <description>A simple approach to a Maven package type for FirstSpirit modules</description>
     <inceptionYear>2017</inceptionYear>
 
     <properties>
