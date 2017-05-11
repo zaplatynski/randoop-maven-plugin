@@ -21,9 +21,9 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
-@Mojo(name="randoop", defaultPhase = LifecyclePhase.GENERATE_TEST_SOURCES, threadSafe = true,
+@Mojo(name = "gentests", defaultPhase = LifecyclePhase.GENERATE_TEST_SOURCES, threadSafe = true,
     requiresDependencyResolution = ResolutionScope.COMPILE_PLUS_RUNTIME)
-public class RandoopMojo  extends AbstractMojo {
+public class RandoopMojo extends AbstractMojo {
 
   @Parameter(required = true)
   private String packageName;
@@ -36,20 +36,34 @@ public class RandoopMojo  extends AbstractMojo {
   private String targetDirectory;
 
   @Parameter(required = true, defaultValue = "30")
-  private int timeout;
+  private int timeoutInSeconds;
 
   @Component
   private MavenProject project;
 
   @Override
   public void execute() throws MojoExecutionException, MojoFailureException {
+
+    // Collect class and jars for class path
     final List<URL> urls = new LinkedList<>();
     urls.add(loadProjectClasses());
-    loadProjectDependencies(urls);
-    urls.add(getClass().getProtectionDomain().getCodeSource().getLocation());
+    urls.addAll(loadProjectDependencies(project));
+    urls.add(loadPluginJarWithRandoop());
 
-    String classPath = urls.stream().map(u -> u.toString()).collect(Collectors.joining(File
-        .pathSeparator));
+    final List<String> args = buildArgs(urls);
+
+    final String randoopCommandLine = args.stream().collect(Collectors.joining(" "));
+    getLog().info("Call outside Maven: " + randoopCommandLine);
+
+    runRandoopGenTests(args);
+  }
+
+  private List<String> buildArgs(final List<URL> urls) {
+    String classPath = urls.stream()
+        .map(u -> u.toString())
+        .collect(Collectors.joining(File.pathSeparator));
+
+    // Build up Randoop command line
     final List<String> args = new LinkedList<>();
     args.add("java");
     args.add("-ea");
@@ -57,45 +71,53 @@ public class RandoopMojo  extends AbstractMojo {
     args.add(classPath);
     args.add("randoop.main.Main");
     args.add("gentests");
-    args.add("--timelimit="+timeout);
+    args.add("--timelimit=" + timeoutInSeconds);
     args.add("--debug-checks=true");
     args.add("--junit-package-name=" + packageName);
     args.add("--junit-output-dir=" + targetDirectory);
 
+    // Add project classes
     final URLClassLoader classLoader = new URLClassLoader(convert(urls));
     List<Class<?>> allClassesOfPackage = ClassFinder.find(packageName, classLoader);
     for (Class<?> currentClass : allClassesOfPackage) {
       getLog().info("Add class " + currentClass.getName());
       args.add("--testclass=" + currentClass.getName());
     }
+    return args;
+  }
 
-
-    getLog().info("Call: " + args.stream().collect(Collectors.joining(" ")));
-
+  private void runRandoopGenTests(final List<String> args) throws MojoExecutionException {
     ProcessBuilder processBuilder = new ProcessBuilder(args);
     processBuilder.redirectErrorStream(true);
     processBuilder.redirectOutput(ProcessBuilder.Redirect.PIPE);
     processBuilder.directory(project.getBasedir());
     try {
-      Process p = processBuilder.start();
-      p.waitFor(timeout+3, TimeUnit.SECONDS);
-      if(p.exitValue() != 0){
-        throw  new MojoFailureException(this,"Randoop encountered an error!","Failed to generate " +
-            "test, exit value is " + p.exitValue());
+      Process randoopProcess = processBuilder.start();
+      getLog().info("Randoop started with time limit of " + timeoutInSeconds + " seconds.");
+      randoopProcess.waitFor(timeoutInSeconds + 3, TimeUnit.SECONDS);
+      if (randoopProcess.exitValue() != 0) {
+        throw new MojoFailureException(this, "Randoop encountered an error!", "Failed to generate " +
+            "test, exit value is " + randoopProcess.exitValue());
       }
     } catch (Exception e) {
-      throw  new MojoExecutionException(e.getMessage(),e);
+      throw new MojoExecutionException(e.getMessage(), e);
     }
   }
 
-  private void loadProjectDependencies(final List<URL> urls) throws MojoExecutionException {
+  private URL loadPluginJarWithRandoop() {
+    return getClass().getProtectionDomain().getCodeSource().getLocation();
+  }
+
+  private static List<URL> loadProjectDependencies(final MavenProject project) throws MojoExecutionException {
+    final List<URL> urls = new LinkedList<>();
     try {
       for (Artifact artifact : project.getArtifacts()) {
         urls.add(artifact.getFile().toURI().toURL());
       }
     } catch (MalformedURLException e) {
-      throw new MojoExecutionException("Could not add artifact!",e);
+      throw new MojoExecutionException("Could not add artifact!", e);
     }
+    return urls;
   }
 
   private URL loadProjectClasses() throws MojoExecutionException {
@@ -103,7 +125,7 @@ public class RandoopMojo  extends AbstractMojo {
     try {
       source = createUrlFrom(sourceDirectory);
     } catch (MalformedURLException e) {
-      throw new MojoExecutionException("Could not create source path!",e);
+      throw new MojoExecutionException("Could not create source path!", e);
     }
     return source;
   }
