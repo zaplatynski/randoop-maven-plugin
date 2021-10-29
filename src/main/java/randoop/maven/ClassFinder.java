@@ -7,6 +7,10 @@ import java.util.List;
 
 public final class ClassFinder {
 
+  private ClassFinder() {
+    throw new IllegalStateException("Utility class");
+  }
+
   private static final char PKG_SEPARATOR = '.';
 
   private static final char DIR_SEPARATOR = '/';
@@ -22,7 +26,7 @@ public final class ClassFinder {
       throw new IllegalArgumentException(String.format(BAD_PACKAGE_ERROR, scannedPath, scannedPackage));
     }
     File scannedDir = new File(scannedUrl.getFile());
-    List<Class<?>> classes = new ArrayList<Class<?>>();
+    List<Class<?>> classes = new ArrayList<>();
     for (File file : scannedDir.listFiles()) {
       classes.addAll(find(file, scannedPackage, classLoader));
     }
@@ -30,7 +34,7 @@ public final class ClassFinder {
   }
 
   private static List<Class<?>> find(File file, String scannedPackage, ClassLoader classLoader) {
-    List<Class<?>> classes = new ArrayList<Class<?>>();
+    List<Class<?>> classes = new ArrayList<>();
     String resource = scannedPackage + PKG_SEPARATOR + file.getName();
     if (file.isDirectory()) {
       for (File child : file.listFiles()) {

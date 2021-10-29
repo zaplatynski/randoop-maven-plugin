@@ -17,7 +17,7 @@ Install into local Maven repository:
 ```
 mvn clean install
 ```
-To override Randoop version 3.1.5 if needed run instead:
+To override Randoop version 4.2.6 if needed run instead:
 ```
 mvn clean install -Drevision=new.version
 ```
@@ -35,7 +35,7 @@ plugin:
         <plugin>
             <groupId>randoop</groupId>
             <artifactId>randoop-maven-plugin</artifactId>
-            <version>3.1.5</version>
+            <version>4.2.6</version>
             <configuration>
                 <packageName>my.base.package</packageName>
             </configuration>
@@ -46,6 +46,25 @@ plugin:
                         <goal>gentests</goal>
                     </goals>
                     <phase>generate-test-sources</phase>
+                </execution>
+            </executions>
+        </plugin>
+        <plugin>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>build-helper-maven-plugin</artifactId>
+            <version>3.2.0</version>
+            <executions>
+                <execution>
+                <id>add-test-sources</id>
+                <phase>generate-test-sources</phase>
+                <goals>
+                    <goal>add-test-source</goal>
+                </goals>
+                <configuration>
+                    <sources>
+                    <source>${project.build.directory}/generated-test-sources/java</source>
+                    </sources>
+                </configuration>
                 </execution>
             </executions>
         </plugin>
